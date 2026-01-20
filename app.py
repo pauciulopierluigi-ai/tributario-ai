@@ -7,7 +7,7 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Studio Tributario AI - Professional v3", layout="wide")
+st.set_page_config(page_title="Studio Tributario Professional v4", layout="wide")
 
 def get_gemini_client(api_key):
     return genai.Client(api_key=api_key)
@@ -15,84 +15,107 @@ def get_gemini_client(api_key):
 def extract_text_from_pdfs(pdf_files):
     text = ""
     for pdf in pdf_files:
-        reader = PdfReader(pdf)
-        for page in reader.pages:
-            text += page.extract_text()
+        try:
+            reader = PdfReader(pdf)
+            for page in reader.pages:
+                text += page.extract_text()
+        except Exception as e:
+            st.error(f"Errore nella lettura di un PDF: {e}")
     return text
 
-st.title("⚖️ Piattaforma Tributaria Professional v3.0")
-st.markdown("Generatore di atti basato sul Modello Standard dello Studio.")
+st.title("⚖️ Piattaforma Tributaria Professional v4.0")
+st.markdown("Redazione atti secondo lo stile consolidato dello Studio.")
 
 with st.sidebar:
     st.header("⚙️ Configurazione")
     api_key = st.text_input("Inserisci API Key Google AI Studio", type="password")
     uploaded_accertamento = st.file_uploader("1. Carica Atto da Impugnare", type="pdf")
-    uploaded_sentenze = st.file_uploader("2. Carica Sentenze (Banca Dati)", type="pdf", accept_multiple_files=True)
+    uploaded_sentenze = st.file_uploader("2. Carica Giurisprudenza (Banca Dati)", type="pdf", accept_multiple_files=True)
+    st.info("Nota: Questa versione forza l'IA a citare i precedenti senza copiarli.")
 
-# Testo del modello standard (estratto dal tuo PDF) per guidare l'IA
+# Definizione del modello basato sul PDF 'Ricorso.pdf' dell'utente
 MODELLO_STUDIO = """
-STRUTTURA OBBLIGATORIA (Copia questo stile):
-ON.LE CORTE DI GIUSTIZIA TRIBUTARIA DI [Città]
-Oggetto: Ricorso avverso l'avviso di accertamento n. [Numero] per l'anno [Anno]
-Ricorrente: [Dati Contribuente], rappresentato e difeso dall'Avv. [Nome], con domicilio eletto presso...
-Contro: Agenzia delle Entrate Direzione Provinciale di [Città]
-FATTO: (Riassunto della vicenda)
-DIRITTO: (Motivi contrassegnati da lettere: a, b, c...)
-P.Q.M. Si chiede alla On.le Corte adita: la nullità dell'atto... la condanna alle spese...
-Si chiede la discussione in pubblica udienza.
+ON.LE CORTE DI GIUSTIZIA TRIBUTARIA DI [CITTA]
+Oggetto: Ricorso avverso l'avviso di accertamento n. [NUMERO] per l'anno [ANNO]
+Ricorrente: [DATI ANAGRAFICI COMPLETI], rappresentato e difeso da [NOME DIFENSORE]
+Contro: Agenzia delle Entrate - Direzione Provinciale di [CITTA]
+FATTO:
+(Riassumere qui la contabilità periodica, l'accertamento induttivo e i rilievi dell'Ufficio)
+DIRITTO:
+a) Errata indicazione della competenza territoriale (se applicabile);
+b) Violazione e falsa applicazione dell'art. 7 Legge 212/2000 (Statuto del Contribuente) per difetto di motivazione e allegazione;
+c) Illegittimità delle sanzioni irrogate (indicare i punti specifici);
+d) [Ulteriori motivi tecnici basati sui file caricati].
+P.Q.M.
+Si chiede alla On.le Corte adita:
+- La nullità degli avvisi di accertamento impugnati;
+- L'annullamento delle sanzioni;
+- La condanna dell'Agenzia alle spese di giudizio.
+Si chiede la discussione in PUBBLICA UDIENZA.
 """
 
 tab1, tab2 = st.tabs(["📝 Redazione Atto", "📅 Scadenziario"])
 
 with tab1:
     if uploaded_accertamento and api_key:
-        client = get_gemini_client(api_key)
-        acc_bytes = uploaded_accertamento.read()
-        sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
+        if st.button("🚀 GENERA ATTO PROFESSIONALE"):
+            try:
+                with st.spinner("L'IA sta elaborando l'atto secondo il modello dello studio..."):
+                    client = get_gemini_client(api_key)
+                    acc_bytes = uploaded_accertamento.read()
+                    sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
 
-        if st.button("🚀 GENERA ATTO SECONDO MODELLO STUDIO"):
-            with st.spinner("Redazione atto professionale in corso..."):
-                prompt_atto = f"""
-                Sei un Avvocato Tributarista. Devi redigere un RICORSO seguendo ESATTAMENTE lo stile e la struttura del modello qui sotto.
-                
-                MODELLO DA IMITARE:
-                {MODELLO_STUDIO}
-                
-                DATI PER IL NUOVO ATTO (Dall'accertamento allegato):
-                - Analizza il PDF dell'accertamento per nomi, date, cifre e motivi dell'ufficio.
-                
-                GIURISPRUDENZA DA INTEGRARE:
-                {sentenze_text}
-                
-                ISTRUZIONI CRITICHE:
-                1. USA LE LETTERE (a, b, c...) per i motivi di diritto.
-                2. SVILUPPA I MOTIVI: Se l'ufficio non ha allegato atti richiamati, usa la giurisprudenza fornita per scrivere 3-4 paragrafi densi di riferimenti normativi (Art. 7 L. 212/2000).
-                3. P.Q.M.: Usa le formule esatte del modello.
-                4. NON COPIARE LA SENTENZA: Usa la sentenza solo per estrarre il 'principio di diritto' da inserire nel capitolo DIRITTO.
-                """
-                
-                res = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_atto],
-                    config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
-                )
-                st.session_state['atto_v3'] = res.text
+                    prompt_professionale = f"""
+                    Sei un Avvocato Tributarista esperto. Devi redigere un RICORSO formale seguendo ESATTAMENTE lo stile del modello fornito.
+                    
+                    SCHEMA DA IMITARE:
+                    {MODELLO_STUDIO}
+                    
+                    DATI DEL CASO ATTUALE:
+                    - Analizza il PDF caricato per estrarre il nome del ricorrente, l'avviso di accertamento e i motivi dell'Agenzia.
+                    
+                    GIURISPRUDENZA DA CITARE (NON COPIARE):
+                    {sentenze_text}
+                    
+                    REGOLE TASSATIVE:
+                    1. SVILUPPA I MOTIVI IN DIRITTO: Non fare elenchi puntati. Ogni motivo deve essere un paragrafo argomentato.
+                    2. CITA I PRECEDENTI: Usa la giurisprudenza fornita (es. Sentenza CGT Campania 16/2024) per rafforzare i motivi a), b) o c).
+                    3. NON FARE COPIA-INCOLLA: Se il testo somiglia troppo a una sentenza caricata, riscrivilo in forma di atto difensivo.
+                    4. LINGUAGGIO: Usa termini tecnici come 'inderogabilità della competenza', 'motivazione per relationem', 'onere della prova'.
+                    """
+                    
+                    # Generazione contenuto
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
+                            prompt_professionale
+                        ],
+                        config=types.GenerateContentConfig(
+                            tools=[types.Tool(google_search=types.GoogleSearch())]
+                        )
+                    )
+                    st.session_state['atto_professionale'] = res.text
+            except Exception as e:
+                st.error(f"Si è verificato un errore durante la generazione: {e}")
 
-    if 'atto_v3' in st.session_state:
-        st.subheader("🖋️ Anteprima Atto (Modello Studio)")
-        testo_revisionato = st.text_area("Modifica il testo:", value=st.session_state['atto_v3'], height=600)
+    if 'atto_professionale' in st.session_state:
+        st.subheader("🖋️ Anteprima Atto (Revisionato)")
+        testo_revisionato = st.text_area("Revisiona il testo qui sotto:", value=st.session_state['atto_professionale'], height=600)
         
-        if st.button("📥 SCARICA WORD"):
+        if st.button("💾 ESPORTA WORD"):
             doc = Document()
-            for p in testo_revisionato.split('\n'):
-                doc.add_paragraph(p)
-            doc.save("Ricorso_Studio.docx")
-            with open("Ricorso_Studio.docx", "rb") as f:
-                st.download_button("Download .docx", f, file_name="Ricorso_Studio.docx")
+            for line in testo_revisionato.split('\n'):
+                doc.add_paragraph(line)
+            doc.save("Ricorso_Studio_V4.docx")
+            with open("Ricorso_Studio_V4.docx", "rb") as f:
+                st.download_button("Scarica .docx", f, file_name="Ricorso_Studio_V4.docx")
 
 with tab2:
-    st.subheader("📅 Calcolo Termini")
-    data_notifica = st.date_input("Data Notifica", datetime.now())
+    st.subheader("📅 Calcolo Termini Tributari")
+    data_notifica = st.date_input("Data Notifica dell'Atto", datetime.now())
     scadenza = data_notifica + timedelta(days=60)
-    if data_notifica.month <= 8 and scadenza.month >= 8: scadenza += timedelta(days=31)
-    st.metric("Scadenza Ricorso", scadenza.strftime("%d/%m/%Y"))
+    # Calcolo sospensione feriale
+    if data_notifica.month <= 8 and scadenza.month >= 8:
+        scadenza += timedelta(days=31)
+    st.metric("Termine ultimo (incl. Sosp. Feriale)", scadenza.strftime("%d/%m/%Y"))
