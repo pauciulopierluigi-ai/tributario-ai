@@ -4,13 +4,12 @@ import json
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
-import chromadb
 from docx import Document
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Studio Tributario AI", layout="wide")
+st.set_page_config(page_title="Studio Tributario AI - Professionale", layout="wide")
 
-# --- FUNZIONI CORE (Adattate per il Web) ---
+# --- FUNZIONI CORE ---
 def get_gemini_client(api_key):
     return genai.Client(api_key=api_key)
 
@@ -23,68 +22,136 @@ def extract_text_from_pdfs(pdf_files):
     return text
 
 # --- INTERFACCIA UTENTE ---
-st.title("⚖️ Piattaforma Tributaria AI")
-st.markdown("Analisi accertamenti, ricerca giurisprudenziale e redazione atti.")
+st.title("⚖️ Piattaforma Tributaria AI Professionale")
+st.markdown("Strumento avanzato per l'analisi dei vizi, ricerca di prassi/giurisprudenza e redazione atti complessi.")
 
 with st.sidebar:
-    st.header("Configurazione")
+    st.header("⚙️ Configurazione")
     api_key = st.text_input("Inserisci API Key Google AI Studio", type="password")
-    uploaded_accertamento = st.file_uploader("Carica Avviso di Accertamento", type="pdf")
-    uploaded_sentenze = st.file_uploader("Carica Sentenze di Riferimento", type="pdf", accept_multiple_files=True)
+    uploaded_accertamento = st.file_uploader("1. Carica Avviso di Accertamento", type="pdf")
+    uploaded_sentenze = st.file_uploader("2. Carica Sentenze della tua Banca Dati", type="pdf", accept_multiple_files=True)
+    st.info("Nota: L'IA utilizzerà sia i file caricati che la ricerca web (Cassazione e Circolari) per redigere l'atto.")
 
 tab1, tab2 = st.tabs(["📝 Redazione e Anteprima", "📅 Calendario Scadenze"])
 
 with tab1:
-    if st.button("Genera Bozza Ricorso"):
-        if not api_key or not uploaded_accertamento:
-            st.error("Inserisci l'API Key e carica l'avviso!")
-        else:
-            with st.spinner("L'IA sta lavorando..."):
-                client = get_gemini_client(api_key)
-                
-                # Fase 1: Analisi
-                acc_bytes = uploaded_accertamento.read()
-                res = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
-                             "Analizza ed estrai JSON: contribuente, anno_imposta, motivi_principali."]
-                )
-                dati = json.loads(res.text.strip().replace('```json', '').replace('```', ''))
-                
-                # Fase 2: Redazione con Ricerca Web
-                sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
-                prompt_f = f"Sei un avvocato. Scrivi un ricorso per {dati['contribuente']}. Motivi: {dati['motivi_principali']}. Sentenze fornite: {sentenze_text}. Cerca online precedenti 2024-2025."
-                
-                ricorso = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt_f,
-                    config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
-                )
-                st.session_state['bozza_testo'] = ricorso.text
+    if not api_key:
+        st.warning("⚠️ Inserisci la tua API Key nella barra laterale per iniziare.")
+    
+    # Pulsanti di azione
+    col1, col2, col3 = st.columns(3)
+    
+    if uploaded_accertamento and api_key:
+        client = get_gemini_client(api_key)
+        acc_bytes = uploaded_accertamento.read()
+        sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else "Nessuna sentenza specifica fornita."
+
+        with col1:
+            if st.button("🔎 1. Analizza Vizi e Criticità"):
+                with st.spinner("Analisi tecnica dell'atto..."):
+                    prompt_vizi = f"""Analizza questo avviso di accertamento. 
+                    Estrai i dati del contribuente e individua tutti i possibili vizi di legittimità e di merito.
+                    Focus su: difetto di motivazione, mancata allegazione atti richiamati, violazione Statuto Contribuente.
+                    Rispondi in modo schematico ma tecnico."""
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_vizi]
+                    )
+                    st.session_state['analisi_vizi'] = res.text
+
+        with col2:
+            if st.button("📚 2. Cerca Norme, Prassi e Cassazione"):
+                with st.spinner("Ricerca online di Circolari e Sentenze 2023-2025..."):
+                    prompt_ricerca = f"""In base ai vizi rilevati nell'atto caricato, effettua una ricerca web.
+                    Trova: 
+                    1. Sentenze della Cassazione (2023-2025) sul difetto di motivazione e allegazione.
+                    2. Circolari dell'Agenzia delle Entrate (es. Circolare 9/E o altre) sulla partecipazione del socio.
+                    3. Articoli dello Statuto del Contribuente (L. 212/2000) violati.
+                    Documentazione locale fornita: {sentenze_text}"""
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_ricerca],
+                        config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+                    )
+                    st.session_state['ricerca_legale'] = res.text
+
+        with col3:
+            if st.button("✍️ 3. Genera Atto Completo"):
+                with st.spinner("Redazione ricorso professionale in corso..."):
+                    # Prima estraiamo i dati per l'intestazione
+                    res_dati = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), "Estrai JSON: contribuente, anno_imposta."]
+                    )
+                    dati = json.loads(res_dati.text.strip().replace('```json', '').replace('```', ''))
+                    
+                    prompt_atto = f"""
+                    Sei un Avvocato Tributarista senior esperto in contenzioso. Redigi un RICORSO/APPELLO per {dati['contribuente']}.
+                    
+                    STRUTTURA OBBLIGATORIA:
+                    1. INTESTAZIONE E FATTO: Dettagliato.
+                    2. MOTIVI IN DIRITTO (Sviluppo esteso): Per ogni vizio (motivazione, allegazione, merito), scrivi 4-5 paragrafi tecnici.
+                       - Usa formule: "Inosservanza e falsa applicazione dell'art...", "Nullità radicale per violazione del diritto di difesa".
+                       - Integra la sentenza fornita: {sentenze_text}.
+                       - Cita prassi amministrativa (Circolari) e giurisprudenza della Cassazione recente trovata online.
+                    3. CONCLUSIONI: Chiare e perentorie.
+                    4. ISTANZA DI PUBBLICA UDIENZA.
+
+                    Stile: Accademico, aggressivo verso l'operato dell'Ufficio, estremamente formale. 
+                    L'atto deve essere lungo e argomentato, non un semplice elenco.
+                    """
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_atto],
+                        config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+                    )
+                    st.session_state['bozza_testo'] = res.text
+
+    # Visualizzazione Risultati
+    if 'analisi_vizi' in st.session_state:
+        with st.expander("🧐 Risultato Analisi Vizi", expanded=False):
+            st.markdown(st.session_state['analisi_vizi'])
+            
+    if 'ricerca_legale' in st.session_state:
+        with st.expander("📖 Riferimenti Normativi e Prassi trovati", expanded=False):
+            st.markdown(st.session_state['ricerca_legale'])
 
     if 'bozza_testo' in st.session_state:
-        # ANTEPRIMA E MODIFICA
-        testo_finale = st.text_area("Modifica il testo prima di generare il Word:", 
-                                     value=st.session_state['bozza_testo'], height=500)
+        st.subheader("🖋️ Anteprima Atto (Modificabile)")
+        testo_finale = st.text_area("Revisiona il testo qui sotto:", 
+                                     value=st.session_state['bozza_testo'], height=600)
         
-        if st.button("Scarica Documento Word"):
+        if st.button("💾 Esporta in Word"):
             doc = Document()
-            doc.add_heading("RICORSO TRIBUTARIO", 0)
-            doc.add_paragraph(testo_finale)
-            doc.save("Ricorso_Finale.docx")
-            with open("Ricorso_Finale.docx", "rb") as f:
-                st.download_button("Clicca qui per scaricare", f, file_name="Ricorso_Finale.docx")
+            # Impostazione margini e font base (opzionale tramite codice)
+            doc.add_heading("CORTE DI GIUSTIZIA TRIBUTARIA", 0)
+            for line in testo_finale.split('\n'):
+                doc.add_paragraph(line)
+            
+            nome_file = "Ricorso_Professionale.docx"
+            doc.save(nome_file)
+            with open(nome_file, "rb") as f:
+                st.download_button("📥 Clicca qui per scaricare il file Word", f, file_name=nome_file)
 
 with tab2:
-    st.subheader("Calcolo Scadenze")
-    data_notifica = st.date_input("Data di notifica dell'avviso", datetime.now())
+    st.subheader("📅 Scadenziario Legale")
+    data_notifica = st.date_input("Data di ricezione atto (Notifica):", datetime.now())
+    
+    # Calcolo termini standard 60gg
     scadenza_60 = data_notifica + timedelta(days=60)
     
-    col1, col2 = st.columns(2)
-    col1.metric("Termine 60 giorni", scadenza_60.strftime("%d/%m/%Y"))
+    # Gestione sospensione feriale (1-31 agosto) semplificata
+    # Se il termine cade o attraversa agosto, aggiunge 31 giorni
+    if data_notifica.month <= 8 and scadenza_60.month >= 8:
+        scadenza_60 += timedelta(days=31)
+        st.info("ℹ️ Il calcolo include la sospensione feriale dei termini (1-31 agosto).")
+
+    st.metric("Termine ultimo deposito ricorso", scadenza_60.strftime("%d/%m/%Y"))
     
-    giorni_rimanenti = (scadenza_60 - datetime.now().date()).days
-    if giorni_rimanenti > 0:
-        col2.warning(f"Mancano {giorni_rimanenti} giorni alla scadenza.")
+    giorni_mancanti = (scadenza_60 - datetime.now().date()).days
+    if giorni_mancanti > 15:
+        st.success(f"Mancano {giorni_mancanti} giorni.")
+    elif 0 < giorni_mancanti <= 15:
+        st.warning(f"⚠️ SCADENZA IMMINENTE: Mancano solo {giorni_mancanti} giorni!")
     else:
-        col2.error("Scadenza superata!")
+        st.error("❌ TERMINE SCADUTO")
