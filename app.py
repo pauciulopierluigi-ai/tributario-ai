@@ -7,7 +7,7 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Studio Tributario Professional v4", layout="wide")
+st.set_page_config(page_title="Studio Tributario Professional v5", layout="wide")
 
 def get_gemini_client(api_key):
     return genai.Client(api_key=api_key)
@@ -23,34 +23,25 @@ def extract_text_from_pdfs(pdf_files):
             st.error(f"Errore nella lettura di un PDF: {e}")
     return text
 
-st.title("⚖️ Piattaforma Tributaria Professional v4.0")
-st.markdown("Redazione atti secondo lo stile consolidato dello Studio.")
+st.title("⚖️ Piattaforma Tributaria Professional v5.0")
+st.markdown("Analisi vizi, ricerca giurisprudenziale e redazione secondo il modello dello Studio.")
 
 with st.sidebar:
     st.header("⚙️ Configurazione")
     api_key = st.text_input("Inserisci API Key Google AI Studio", type="password")
     uploaded_accertamento = st.file_uploader("1. Carica Atto da Impugnare", type="pdf")
     uploaded_sentenze = st.file_uploader("2. Carica Giurisprudenza (Banca Dati)", type="pdf", accept_multiple_files=True)
-    st.info("Nota: Questa versione forza l'IA a citare i precedenti senza copiarli.")
+    st.info("Piano Pay-as-you-go attivo: Nessun limite di generazione.")
 
-# Definizione del modello basato sul PDF 'Ricorso.pdf' dell'utente
+# Modello basato sul file 'Ricorso.pdf'
 MODELLO_STUDIO = """
+STRUTTURA DA IMITARE:
 ON.LE CORTE DI GIUSTIZIA TRIBUTARIA DI [CITTA]
 Oggetto: Ricorso avverso l'avviso di accertamento n. [NUMERO] per l'anno [ANNO]
-Ricorrente: [DATI ANAGRAFICI COMPLETI], rappresentato e difeso da [NOME DIFENSORE]
-Contro: Agenzia delle Entrate - Direzione Provinciale di [CITTA]
-FATTO:
-(Riassumere qui la contabilità periodica, l'accertamento induttivo e i rilievi dell'Ufficio)
-DIRITTO:
-a) Errata indicazione della competenza territoriale (se applicabile);
-b) Violazione e falsa applicazione dell'art. 7 Legge 212/2000 (Statuto del Contribuente) per difetto di motivazione e allegazione;
-c) Illegittimità delle sanzioni irrogate (indicare i punti specifici);
-d) [Ulteriori motivi tecnici basati sui file caricati].
-P.Q.M.
-Si chiede alla On.le Corte adita:
-- La nullità degli avvisi di accertamento impugnati;
-- L'annullamento delle sanzioni;
-- La condanna dell'Agenzia alle spese di giudizio.
+Ricorrente: [DATI COMPLETI], rappresentato e difeso da [NOME DIFENSORE]
+FATTO: (Analisi puntuale della vicenda e dei rilievi dell'Ufficio)
+DIRITTO: (Motivi distinti da lettere a, b, c...)
+P.Q.M. (Richieste di nullità e condanna alle spese)
 Si chiede la discussione in PUBBLICA UDIENZA.
 """
 
@@ -58,64 +49,81 @@ tab1, tab2 = st.tabs(["📝 Redazione Atto", "📅 Scadenziario"])
 
 with tab1:
     if uploaded_accertamento and api_key:
-        if st.button("🚀 GENERA ATTO PROFESSIONALE"):
-            try:
-                with st.spinner("L'IA sta elaborando l'atto secondo il modello dello studio..."):
-                    client = get_gemini_client(api_key)
-                    acc_bytes = uploaded_accertamento.read()
-                    sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
+        client = get_gemini_client(api_key)
+        acc_bytes = uploaded_accertamento.read()
+        sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
 
-                    prompt_professionale = f"""
-                    Sei un Avvocato Tributarista esperto. Devi redigere un RICORSO formale seguendo ESATTAMENTE lo stile del modello fornito.
-                    
-                    SCHEMA DA IMITARE:
-                    {MODELLO_STUDIO}
-                    
-                    DATI DEL CASO ATTUALE:
-                    - Analizza il PDF caricato per estrarre il nome del ricorrente, l'avviso di accertamento e i motivi dell'Agenzia.
-                    
-                    GIURISPRUDENZA DA CITARE (NON COPIARE):
-                    {sentenze_text}
-                    
-                    REGOLE TASSATIVE:
-                    1. SVILUPPA I MOTIVI IN DIRITTO: Non fare elenchi puntati. Ogni motivo deve essere un paragrafo argomentato.
-                    2. CITA I PRECEDENTI: Usa la giurisprudenza fornita (es. Sentenza CGT Campania 16/2024) per rafforzare i motivi a), b) o c).
-                    3. NON FARE COPIA-INCOLLA: Se il testo somiglia troppo a una sentenza caricata, riscrivilo in forma di atto difensivo.
-                    4. LINGUAGGIO: Usa termini tecnici come 'inderogabilità della competenza', 'motivazione per relationem', 'onere della prova'.
-                    """
-                    
-                    # Generazione contenuto
-                    res = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
-                            prompt_professionale
-                        ],
-                        config=types.GenerateContentConfig(
-                            tools=[types.Tool(google_search=types.GoogleSearch())]
-                        )
-                    )
-                    st.session_state['atto_professionale'] = res.text
-            except Exception as e:
-                st.error(f"Si è verificato un errore durante la generazione: {e}")
-
-    if 'atto_professionale' in st.session_state:
-        st.subheader("🖋️ Anteprima Atto (Revisionato)")
-        testo_revisionato = st.text_area("Revisiona il testo qui sotto:", value=st.session_state['atto_professionale'], height=600)
+        # RIPRISTINO DEI TRE TASTI
+        col1, col2, col3 = st.columns(3)
         
-        if st.button("💾 ESPORTA WORD"):
+        with col1:
+            if st.button("🔎 1. Analizza Vizi"):
+                try:
+                    with st.spinner("Analisi vizi in corso..."):
+                        res = client.models.generate_content(
+                            model="gemini-2.0-flash",
+                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
+                                     "Individua i vizi di legittimità (motivazione, allegazione, competenza) e di merito nell'atto. Sii tecnico."]
+                        )
+                        st.session_state['analisi_vizi'] = res.text
+                except Exception as e: st.error(f"Errore: {e}")
+
+        with col2:
+            if st.button("📚 2. Ricerca Legale"):
+                try:
+                    with st.spinner("Ricerca online Cassazione e Circolari..."):
+                        prompt_web = f"Cerca sentenze Cassazione 2023-2025 e Circolari AdE sul caso analizzato. Usa anche questi precedenti: {sentenze_text}"
+                        res = client.models.generate_content(
+                            model="gemini-2.0-flash",
+                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_web],
+                            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+                        )
+                        st.session_state['ricerca_legale'] = res.text
+                except Exception as e: st.error(f"Errore: {e}")
+
+        with col3:
+            if st.button("✍️ 3. Genera Atto"):
+                try:
+                    with st.spinner("Redazione atto finale..."):
+                        prompt_finale = f"""
+                        Redigi un RICORSO formale seguendo lo stile del MODELLO STUDIO:
+                        {MODELLO_STUDIO}
+                        
+                        Usa i dati del PDF caricato e integra i principi di diritto di queste sentenze: {sentenze_text}.
+                        Sviluppa i motivi in diritto con lettere (a, b, c) e linguaggio tecnico (es. motivazione per relationem).
+                        NON COPIARE LE SENTENZE, usale come citazione a supporto.
+                        """
+                        res = client.models.generate_content(
+                            model="gemini-2.0-flash",
+                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_finale],
+                            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+                        )
+                        st.session_state['atto_finale'] = res.text
+                except Exception as e: st.error(f"Errore: {e}")
+
+    # Visualizzazione risultati
+    if 'analisi_vizi' in st.session_state:
+        st.info("### 🧐 Analisi Vizi Rilevati")
+        st.markdown(st.session_state['analisi_vizi'])
+        
+    if 'ricerca_legale' in st.session_state:
+        st.success("### 📖 Riferimenti Normativi e Giurisprudenza")
+        st.markdown(st.session_state['ricerca_legale'])
+
+    if 'atto_finale' in st.session_state:
+        st.subheader("🖋️ Anteprima Ricorso (Modificabile)")
+        testo_f = st.text_area("Revisiona:", value=st.session_state['atto_finale'], height=500)
+        
+        if st.button("💾 SCARICA WORD"):
             doc = Document()
-            for line in testo_revisionato.split('\n'):
-                doc.add_paragraph(line)
-            doc.save("Ricorso_Studio_V4.docx")
-            with open("Ricorso_Studio_V4.docx", "rb") as f:
-                st.download_button("Scarica .docx", f, file_name="Ricorso_Studio_V4.docx")
+            for line in testo_f.split('\n'): doc.add_paragraph(line)
+            doc.save("Ricorso_V5.docx")
+            with open("Ricorso_V5.docx", "rb") as f:
+                st.download_button("Download .docx", f, file_name="Ricorso_V5.docx")
 
 with tab2:
-    st.subheader("📅 Calcolo Termini Tributari")
-    data_notifica = st.date_input("Data Notifica dell'Atto", datetime.now())
-    scadenza = data_notifica + timedelta(days=60)
-    # Calcolo sospensione feriale
-    if data_notifica.month <= 8 and scadenza.month >= 8:
-        scadenza += timedelta(days=31)
-    st.metric("Termine ultimo (incl. Sosp. Feriale)", scadenza.strftime("%d/%m/%Y"))
+    st.subheader("📅 Scadenziario")
+    data_n = st.date_input("Data Notifica", datetime.now())
+    scad = data_n + timedelta(days=60)
+    if data_n.month <= 8 and scad.month >= 8: scad += timedelta(days=31)
+    st.metric("Termine ultimo deposito", scad.strftime("%d/%m/%Y"))
