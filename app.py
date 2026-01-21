@@ -1,16 +1,42 @@
 import streamlit as st
 import os
 import json
+import requests
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
 from docx import Document
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Studio Tributario AI - Banca Dati Ufficiale", layout="wide")
+st.set_page_config(page_title="Studio Tributario AI - Perplexity Edition", layout="wide")
 
+# --- FUNZIONI CORE ---
 def get_gemini_client(api_key):
     return genai.Client(api_key=api_key)
+
+def call_perplexity(api_key, query):
+    """Funzione per interrogare Perplexity sonar per ricerca giurisprudenziale mirata"""
+    url = "https://api.perplexity.ai/chat/completions"
+    payload = {
+        "model": "sonar-pro", # Modello avanzato per ricerca web
+        "messages": [
+            {
+                "role": "system",
+                "content": "Sei un assistente legale esperto in ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it. Restituisci solo sentenze reali con estremi (N., Sezione, Data) e sintesi del principio di diritto."
+            },
+            {"role": "user", "content": query}
+        ],
+        "max_tokens": 1000
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code == 200:
+        return response.json()['choices'][0]['message']['content']
+    else:
+        return f"Errore Perplexity: {response.status_code} - {response.text}"
 
 def extract_text_from_pdfs(pdf_files):
     text = ""
@@ -20,109 +46,111 @@ def extract_text_from_pdfs(pdf_files):
             for page in reader.pages:
                 text += page.extract_text()
         except Exception as e:
-            st.error(f"Errore nella lettura di un PDF: {e}")
+            st.error(f"Errore lettura PDF: {e}")
     return text
 
-st.title("⚖️ Piattaforma Tributaria - Verticale Giustizia Tributaria")
-st.markdown("Ricerca giurisprudenziale focalizzata su: **bancadatigiurisprudenza.giustiziatributaria.gov.it**")
+# --- INTERFACCIA ---
+st.title("⚖️ Piattaforma Tributaria Professional v10.0")
+st.markdown("Ricerca intelligente su **Banca Dati Giustizia Tributaria** tramite Perplexity AI.")
 
 with st.sidebar:
-    st.header("⚙️ Configurazione")
-    api_key = st.text_input("Inserisci API Key Google AI Studio", type="password")
-    uploaded_accertamento = st.file_uploader("1. Carica Atto da Impugnare", type="pdf")
-    uploaded_sentenze = st.file_uploader("2. Carica Giurisprudenza Interna", type="pdf", accept_multiple_files=True)
-    st.info("La ricerca è ora limitata esclusivamente alla Banca Dati della Giustizia Tributaria.")
+    st.header("⚙️ Configurazione API")
+    gemini_key = st.text_input("API Key Gemini (Google)", type="password")
+    pplx_key = st.text_input("API Key Perplexity", type="password")
+    
+    st.header("📄 Caricamento")
+    uploaded_accertamento = st.file_uploader("Carica Atto da Impugnare", type="pdf")
+    uploaded_sentenze = st.file_uploader("Carica Precedenti Interni (Opzionale)", type="pdf", accept_multiple_files=True)
+    
+    st.header("🎯 Filtri Ricerca Intelligente")
+    grado_giudizio = st.selectbox("Grado autorità emittente", ["Tutti", "Primo Grado", "Secondo Grado"])
+    esito_richiesto = st.selectbox("Esito giudizio", ["Tutti", "Favorevole al contribuente", "Parzialmente favorevole"])
 
-# Modello basato sul file 'Ricorso.pdf' fornito dall'utente
 MODELLO_STUDIO = """
 ON.LE CORTE DI GIUSTIZIA TRIBUTARIA DI [CITTA]
 Oggetto: Ricorso avverso l'avviso di accertamento n. [NUMERO] per l'anno [ANNO]
-Ricorrente: [DATI COMPLETI], rappresentato e difeso da [NOME DIFENSORE]
-FATTO: (Analisi puntuale della vicenda e dei rilievi dell'Ufficio)
-DIRITTO: (Motivi distinti da lettere a, b, c...)
-P.Q.M. (Richieste di nullità, annullamento sanzioni e condanna alle spese)
-Si chiede la discussione in PUBBLICA UDIENZA.
+Ricorrente: [DATI], difeso dall'Avv. [NOME]
+FATTO: (Esposizione vicenda)
+DIRITTO: (Motivi a, b, c...)
+P.Q.M. (Annullamento atto e spese)
+Discussione in PUBBLICA UDIENZA.
 """
-
-# Restrizione alla sola banca dati della giustizia tributaria
-BANCA_DATI_UNICA = "site:bancadatigiurisprudenza.giustiziatributaria.gov.it"
 
 tab1, tab2 = st.tabs(["📝 Redazione Atto", "📅 Scadenziario"])
 
 with tab1:
-    if uploaded_accertamento and api_key:
-        client = get_gemini_client(api_key)
+    if uploaded_accertamento and gemini_key:
+        client = get_gemini_client(gemini_key)
         acc_bytes = uploaded_accertamento.read()
-        sentenze_text = extract_text_from_pdfs(uploaded_sentenze) if uploaded_sentenze else ""
-
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
             if st.button("🔎 1. Analizza Vizi"):
-                try:
-                    with st.spinner("Analisi tecnica dell'atto..."):
-                        res = client.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
-                                     "Estrai i vizi tecnici e i motivi di diritto dell'accertamento allegato."]
-                        )
-                        st.session_state['analisi_vizi'] = res.text
-                except Exception as e: st.error(f"Errore: {e}")
+                with st.spinner("Analisi tecnica..."):
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
+                                 "Identifica i vizi principali dell'atto e i temi per la ricerca giurisprudenziale."]
+                    )
+                    st.session_state['analisi'] = res.text
 
         with col2:
-            if st.button("📚 2. Ricerca Precedenti Tributari"):
-                try:
-                    with st.spinner("Ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it..."):
-                        # Ricerca mirata solo sulla banca dati specifica
-                        query_ricerca = f"""Utilizza solo {BANCA_DATI_UNICA}.
-                        Trova sentenze delle Corti di Giustizia Tributaria relative a: {sentenze_text} e ai vizi dell'atto caricato.
-                        Fornisci estremi delle sentenze e massime rilevanti."""
-                        
-                        res = client.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), query_ricerca],
-                            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
-                        )
-                        st.session_state['ricerca_legale'] = res.text
-                except Exception as e: st.error(f"Errore: {e}")
+            if st.button("🌐 2. Ricerca Perplexity"):
+                if not pplx_key:
+                    st.error("Inserisci la API Key di Perplexity!")
+                else:
+                    with st.spinner("Perplexity sta interrogando la Banca Dati Tributaria..."):
+                        # Costruzione query intelligente basata sui filtri
+                        temi = st.session_state.get('analisi', 'Vizi tributari')[:200]
+                        query_pplx = f"""
+                        Ricerca sul sito https://bancadatigiurisprudenza.giustiziatributaria.gov.it/ricerca:
+                        1. Parole da ricercare: {temi}
+                        2. Filtra per Grado: {grado_giudizio}
+                        3. Filtra per Esito: {esito_richiesto}
+                        Trova almeno 3 sentenze recenti che abbiano accolto il ricorso per motivi analoghi. 
+                        Restituisci solo estremi e massime.
+                        """
+                        risultato_ricerca = call_perplexity(pplx_key, query_pplx)
+                        st.session_state['ricerca_pplx'] = risultato_ricerca
 
         with col3:
             if st.button("✍️ 3. Genera Atto"):
-                try:
-                    with st.spinner("Redazione ricorso professionale..."):
-                        prompt_finale = f"""Scrivi un RICORSO seguendo il modello: {MODELLO_STUDIO}.
-                        Usa i dati dell'accertamento. Integra i motivi di diritto con i precedenti trovati nella ricerca e con questi: {sentenze_text}.
-                        Utilizza uno stile da avvocato tributarista, motivi contrassegnati da lettere, e citazioni giurisprudenziali precise.
-                        Assicurati di includere la richiesta di Pubblica Udienza."""
-                        
-                        res = client.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt_finale],
-                            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
-                        )
-                        st.session_state['atto_finale'] = res.text
-                except Exception as e: st.error(f"Errore: {e}")
+                with st.spinner("Redazione finale..."):
+                    precedenti = st.session_state.get('ricerca_pplx', "")
+                    precedenti_interni = extract_text_from_pdfs(uploaded_sentenze)
+                    
+                    prompt = f"""Scrivi un RICORSO seguendo il modello: {MODELLO_STUDIO}.
+                    Usa i dati dell'accertamento caricato.
+                    Sviluppa i motivi in diritto (a, b, c) integrando questi precedenti:
+                    {precedenti}
+                    {precedenti_interni}
+                    Cita specificamente gli estremi delle sentenze trovate per rinforzare la tesi difensiva.
+                    """
+                    res = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt]
+                    )
+                    st.session_state['atto_v10'] = res.text
 
-    # Visualizzazione risultati
-    if 'analisi_vizi' in st.session_state:
-        with st.expander("🧐 Analisi Vizi", expanded=True): st.markdown(st.session_state['analisi_vizi'])
-        
-    if 'ricerca_legale' in st.session_state:
-        with st.expander("📖 Precedenti della Giustizia Tributaria"): st.markdown(st.session_state['ricerca_legale'])
-
-    if 'atto_finale' in st.session_state:
-        st.subheader("🖋️ Anteprima Atto")
-        testo_f = st.text_area("Revisiona il ricorso:", value=st.session_state['atto_finale'], height=500)
+    # Display dei risultati
+    if 'analisi' in st.session_state:
+        with st.expander("🧐 Vizi Rilevati"): st.markdown(st.session_state['analisi'])
+    if 'ricerca_pplx' in st.session_state:
+        with st.expander("🌐 Risultati Perplexity (Banca Dati)"): st.markdown(st.session_state['ricerca_pplx'])
+    if 'atto_v10' in st.session_state:
+        st.subheader("🖋️ Anteprima Ricorso")
+        testo = st.text_area("Revisione:", value=st.session_state['atto_v10'], height=500)
         if st.button("💾 SCARICA WORD"):
             doc = Document()
-            for line in testo_f.split('\n'): doc.add_paragraph(line)
-            doc.save("Ricorso_Tributario_V7.docx")
-            with open("Ricorso_Tributario_V7.docx", "rb") as f:
-                st.download_button("Download .docx", f, file_name="Ricorso_Tributario_V7.docx")
+            for l in testo.split('\n'): doc.add_paragraph(l)
+            doc.save("Ricorso_V10.docx")
+            with open("Ricorso_V10.docx", "rb") as f:
+                st.download_button("Download", f, file_name="Ricorso_V10.docx")
 
 with tab2:
-    st.subheader("📅 Scadenziario Legale")
+    st.subheader("📅 Calcolo Termini")
     data_n = st.date_input("Data Notifica", datetime.now())
     scad = data_n + timedelta(days=60)
     if data_n.month <= 8 and scad.month >= 8: scad += timedelta(days=31)
-    st.metric("Termine ultimo deposito ricorso", scad.strftime("%d/%m/%Y"))
+    st.metric("Scadenza", scad.strftime("%d/%m/%Y"))
