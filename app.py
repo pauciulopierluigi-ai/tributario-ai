@@ -14,21 +14,27 @@ st.markdown("""
     /* Sfondo Generale */
     .main { background-color: #f4f7f9; }
     
-    /* SIDEBAR: SFONDO BLU E TUTTO IL TESTO BIANCO */
+    /* SIDEBAR: SFONDO BLU */
     [data-testid="stSidebar"] {
         background-color: #1a365d !important;
     }
     
-    /* Forza il bianco su: Testi, Titoli, Label, Input help e il Menu di Navigazione */
-    [data-testid="stSidebar"] *, 
-    [data-testid="stSidebarContent"] *,
-    [data-testid="stSidebarNav"] * {
+    /* 1. Testi generici, Titoli e Etichette (Label) in BIANCO */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebarNav"] span {
         color: white !important;
     }
 
-    /* Fix specifico per i nomi delle pagine nel menu di navigazione */
-    [data-testid="stSidebarNavItems"] span {
-        color: white !important;
+    /* 2. Testo all'interno dei box di caricamento (File Uploader) in NERO */
+    [data-testid="stSidebar"] .stFileUploader section div {
+        color: #2d3748 !important;
+    }
+
+    /* 3. Testo all'interno dei campi di input (API Keys) in NERO */
+    [data-testid="stSidebar"] input {
+        color: #2d3748 !important;
     }
 
     /* Pannelli Risultati (Cards) */
@@ -122,7 +128,7 @@ def pagina_redazione():
         if st.button("GENERA BOZZA FINALE"):
             client = genai.Client(api_key=st.session_state['gemini_key'])
             txt_offline = "".join([extract_text_from_bytes(b) for b in st.session_state.get('f_sentenze', [])])
-            prompt = f"Scrivi un ricorso professionale basato su vizi: {st.session_state['vizi']}, sentenze online: {st.session_state.get('giur','')}, e sentenze offline: {txt_offline}."
+            prompt = f"Scrivi un ricorso professionale basato su vizi: {st.session_state['vizi']}, sentenze online: {st.session_state.get('giur','')}, e sentenze offline: {txt_offline}. Usa il modello FATTO/DIRITTO/PQM."
             res = client.models.generate_content(model="gemini-2.0-flash", contents=[types.Part.from_bytes(data=st.session_state['f_atto'], mime_type="application/pdf"), prompt])
             st.session_state['atto'] = res.text
         if 'atto' in st.session_state:
@@ -135,8 +141,11 @@ with st.sidebar:
     st.session_state['gemini_key'] = st.text_input("Gemini API Key", type="password")
     st.session_state['pplx_key'] = st.text_input("Perplexity API Key", type="password")
     st.markdown("---")
+    
+    # Etichette Bianche, Testo dentro il box Nero
     f_acc = st.file_uploader("1. Carica Avviso Accertamento", type="pdf")
     if f_acc: st.session_state['f_atto'] = f_acc.getvalue()
+    
     f_pre = st.file_uploader("2. Carica Sentenze Offline", type="pdf", accept_multiple_files=True)
     if f_pre: st.session_state['f_sentenze'] = [f.getvalue() for f in f_pre]
 
