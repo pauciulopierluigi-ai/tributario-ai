@@ -7,117 +7,129 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Studio Tributario AI - Ultra Search V11", layout="wide")
+st.set_page_config(page_title="Studio Tributario AI - V12", layout="wide")
 
-# --- FUNZIONI DI RICERCA ---
+# --- DATABASE LISTE ---
+PROVINCE = ["AG", "AL", "AN", "AO", "AQ", "AR", "AP", "AT", "AV", "BA", "BT", "BL", "BN", "BG", "BI", "BO", "BZ", "BS", "BR", "CA", "CL", "CB", "CE", "CH", "CO", "CS", "CR", "KR", "CN", "EN", "FM", "FE", "FI", "FG", "FC", "GE", "GO", "GR", "IM", "IS", "SP", "LT", "LE", "LC", "LI", "LO", "LU", "MC", "MN", "MS", "MT", "ME", "MI", "MO", "MB", "NA", "NO", "NU", "OR", "PD", "PA", "PR", "PV", "PG", "PU", "PE", "PC", "PI", "PT", "PN", "PZ", "PO", "RG", "RA", "RC", "RE", "RI", "RN", "RM", "RO", "SA", "SS", "SV", "SI", "SR", "SO", "TA", "TE", "TR", "TO", "TP", "TN", "TV", "TS", "UD", "VA", "VE", "VB", "VC", "VR", "VV", "VI", "VT"]
+REGIONI = ["Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"]
 
+# --- FUNZIONI CORE ---
 def call_perplexity(api_key, query):
-    """Interroga Perplexity per simulare la ricerca sulla Banca Dati Tributaria"""
     url = "https://api.perplexity.ai/chat/completions"
     payload = {
         "model": "sonar-pro",
         "messages": [
-            {
-                "role": "system", 
-                "content": "Sei un assistente legale esperto. Il tuo compito è cercare sentenze esclusivamente sul sito https://bancadatigiurisprudenza.giustiziatributaria.gov.it/. Restituisci estremi (n. sentenza, sezione, data) e la massima."
-            },
+            {"role": "system", "content": "Sei un esperto di ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it. Restituisci sentenze reali con estremi e massime."},
             {"role": "user", "content": query}
         ]
     }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        return f"Errore nella ricerca Perplexity: {e}"
+        return f"Errore ricerca: {e}"
 
 def extract_text_from_pdfs(pdf_files):
     text = ""
     for pdf in pdf_files:
         reader = PdfReader(pdf)
-        for page in reader.pages:
-            text += page.extract_text()
+        for page in reader.pages: text += page.extract_text()
     return text
 
-# --- INTERFACCIA UTENTE ---
-
-st.title("⚖️ Piattaforma Tributaria Professional v11.0")
-st.markdown("Integrazione Perplexity per ricerca su Banca Dati Giustizia Tributaria.")
-
+# --- SIDEBAR: CRITERI DI RICERCA BANCA DATI ---
 with st.sidebar:
-    st.header("⚙️ Configurazione Chiavi")
-    gemini_key = st.text_input("1. API Key Gemini (Google)", type="password")
-    pplx_key = st.text_input("2. API Key Perplexity", type="password")
+    st.header("🔑 API Keys")
+    gemini_key = st.text_input("Gemini API Key", type="password")
+    pplx_key = st.text_input("Perplexity API Key", type="password")
     
-    st.header("📄 Caricamento")
-    uploaded_accertamento = st.file_uploader("Carica Atto (PDF)", type="pdf")
-    uploaded_sentenze = st.file_uploader("Carica Sentenze Interne (PDF)", type="pdf", accept_multiple_files=True)
+    st.header("📂 File")
+    uploaded_accertamento = st.file_uploader("Carica Accertamento", type="pdf")
+    uploaded_sentenze = st.file_uploader("Carica Sentenze Interne", type="pdf", accept_multiple_files=True)
     
-    st.header("🎯 Filtri Ricerca")
-    grado_giudizio = st.selectbox("Grado autorità emittente", ["Tutti", "Primo Grado (CGT I)", "Secondo Grado (CGT II)"])
-    esito_richiesto = st.selectbox("Esito giudizio", ["Tutti", "Favorevole al contribuente", "Parzialmente favorevole"])
+    st.header("🔍 Criteri Ricerca Banca Dati")
+    parole_ricerca = st.text_input("Parole da ricercare", placeholder="es. omessa allegazione atto prodromico")
+    
+    tipo_provv = st.selectbox("Tipo provvedimento", ["Tutti", "Sentenza", "Ordinanza di rinvio/remissione"])
+    num_provv = st.text_input("Numero di provvedimento")
+    anno_provv = st.selectbox("Anno", ["Tutti", "2020", "2021", "2022", "2023", "2024", "2025"])
+    
+    grado = st.selectbox("Grado autorità emittente", ["Tutti", "CGT primo grado/Provinciale", "CGT secondo grado/Regionale", "Intera regione"])
+    
+    # Logica Condizionale Autorità
+    autorita = "Tutte"
+    appello = "No"
+    cassazione = "No"
+    
+    if grado == "CGT primo grado/Provinciale":
+        autorita = st.selectbox("Autorità emittente (Provincia)", PROVINCE)
+        appello = st.radio("Appello", ["Si", "No"])
+        cassazione = st.radio("Cassazione", ["Si", "No"])
+    elif grado in ["CGT secondo grado/Regionale", "Intera regione"]:
+        autorita = st.selectbox("Autorità emittente (Regione)", REGIONI)
 
-MODELLO_STUDIO = """
-ON.LE CORTE DI GIUSTIZIA TRIBUTARIA DI [CITTA]
-Oggetto: Ricorso avverso l'avviso di accertamento n. [NUMERO] per l'anno [ANNO]
-FATTO: (Analisi vicenda)
-DIRITTO: (Motivi a, b, c...)
-P.Q.M. (Richieste e Pubblica Udienza)
-"""
+    data_da = st.date_input("Data deposito da", value=None)
+    data_a = st.date_input("Data deposito fino a", value=None)
+    
+    esito = st.selectbox("Esito giudizio", [
+        "Tutti", "Favorevole al contribuente", "Favorevole all'ufficio", 
+        "Giudizio intermedio", "Conciliazione", "Condono ed altri esiti", 
+        "Esito non definitorio", "Reclamo respinto"
+    ])
 
-tab1, tab2 = st.tabs(["📝 Redazione Atto", "📅 Scadenziario"])
+# --- LOGICA APPLICAZIONE ---
+st.title("⚖️ Piattaforma Tributaria Professional V12")
+
+tab1, tab2 = st.tabs(["📝 Redazione", "📅 Scadenze"])
 
 with tab1:
     if uploaded_accertamento and gemini_key:
         client = genai.Client(api_key=gemini_key)
         acc_bytes = uploaded_accertamento.read()
         
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🔎 1. Analizza Atto"):
-                with st.spinner("Analisi in corso..."):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("🔎 1. Analizza Vizi"):
+                with st.spinner("Analisi..."):
                     res = client.models.generate_content(
                         model="gemini-2.0-flash",
-                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), 
-                                 "Estrai i vizi principali dell'atto per la ricerca giurisprudenziale."]
+                        contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), "Estrai vizi tecnici."]
                     )
-                    st.session_state['analisi'] = res.text
+                    st.session_state['vizi'] = res.text
 
-        with col2:
-            if st.button("🌐 2. Ricerca Precedenti"):
-                if not pplx_key:
-                    st.warning("Inserisci la chiave Perplexity a sinistra!")
+        with c2:
+            if st.button("🌐 2. Ricerca Perplexity"):
+                if not pplx_key: st.error("Inserisci API Perplexity")
                 else:
-                    with st.spinner("Perplexity sta cercando sulla Banca Dati..."):
-                        tema = st.session_state.get('analisi', 'Vizi motivazione tributaria')
-                        query_intelligente = f"""
-                        Cerca nel portale https://bancadatigiurisprudenza.giustiziatributaria.gov.it/ricerca:
-                        - Parole da ricercare: {tema[:150]}
-                        - Grado autorità: {grado_giudizio}
-                        - Esito: {esito_richiesto}
-                        Trova 3 sentenze favorevoli al contribuente. Fornisci estremi e massime.
+                    with st.spinner("Ricerca avanzata in corso..."):
+                        tema = parole_ricerca if parole_ricerca else st.session_state.get('vizi', 'Vizio motivazione')
+                        query_f = f"""
+                        Esegui una ricerca mirata sul portale bancadatigiurisprudenza.giustiziatributaria.gov.it con questi parametri:
+                        - Parole chiave: {tema}
+                        - Tipo: {tipo_provv}
+                        - Anno: {anno_provv}
+                        - Numero: {num_provv}
+                        - Grado Autorità: {grado}
+                        - Sede: {autorita}
+                        - Esito desiderato: {esito}
+                        - Appello/Cassazione: {appello}/{cassazione}
+                        - Date: dal {data_da} al {data_a}
+                        Restituisci almeno 3 sentenze con estremi e massime.
                         """
-                        st.session_state['ricerca_pplx'] = call_perplexity(pplx_key, query_intelligente)
+                        st.session_state['giur'] = call_perplexity(pplx_key, query_f)
 
-        with col3:
-            if st.button("✍️ 3. Genera Atto"):
-                with st.spinner("Generazione ricorso..."):
-                    precedenti = st.session_state.get('ricerca_pplx', "")
-                    prompt = f"Scrivi un ricorso basato sul modello {MODELLO_STUDIO} usando l'atto caricato e questi precedenti: {precedenti}"
+        with c3:
+            if st.button("✍️ 3. Genera Ricorso"):
+                with st.spinner("Generazione..."):
+                    giur_ext = extract_text_from_pdfs(uploaded_sentenze)
+                    prompt = f"Scrivi un ricorso professionale citando i precedenti trovati: {st.session_state.get('giur', '')} e {giur_ext}"
                     res = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[types.Part.from_bytes(data=acc_bytes, mime_type="application/pdf"), prompt]
                     )
-                    st.session_state['atto_finale'] = res.text
+                    st.session_state['atto'] = res.text
 
-    # Risultati
-    if 'analisi' in st.session_state:
-        st.info(st.session_state['analisi'])
-    if 'ricerca_pplx' in st.session_state:
-        st.success(st.session_state['ricerca_pplx'])
-    if 'atto_finale' in st.session_state:
-        st.text_area("Bozza:", value=st.session_state['atto_finale'], height=400)
+    # Anteprime
+    if 'vizi' in st.session_state: st.info(st.session_state['vizi'])
+    if 'giur' in st.session_state: st.success(st.session_state['giur'])
+    if 'atto' in st.session_state: st.text_area("Ricorso:", value=st.session_state['atto'], height=400)
