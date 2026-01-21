@@ -18,10 +18,25 @@ st.markdown("""
     html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     h1, h2, h3 { font-family: 'Playfair Display', serif; color: #1a365d; }
 
-    /* Sidebar elegante */
-    [data-testid="stSidebar"] { background-color: #1a365d; color: white; }
-    [data-testid="stSidebar"] .stMarkdown h1 { color: white; border-bottom: 1px solid #ffffff33; padding-bottom: 10px; }
+    /* SIDEBAR: SFONDO BLU E TESTO BIANCO */
+    [data-testid="stSidebar"] {
+        background-color: #1a365d;
+    }
     
+    /* Forza il colore bianco per tutti gli elementi nella sidebar */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown h1 {
+        color: white !important;
+    }
+    
+    /* Separatore sidebar */
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(255,255,255,0.2) !important;
+    }
+
     /* Pannelli Risultati (Cards) */
     .legal-card {
         background-color: white;
@@ -62,102 +77,3 @@ def call_perplexity(api_key, query):
         "messages": [
             {"role": "system", "content": "Sei un esperto di ricerca legale. Accedi a bancadatigiurisprudenza.giustiziatributaria.gov.it e trova sentenze reali."},
             {"role": "user", "content": query}
-        ]
-    }
-    try:
-        r = requests.post(url, json=payload, headers=headers)
-        return r.json()['choices'][0]['message']['content']
-    except: return "Errore di ricerca."
-
-# --- PAGINA 1: ANALISI ---
-def pagina_analisi():
-    st.markdown('<h1>🔎 Analisi Tecnica dell\'Atto</h1>', unsafe_allow_html=True)
-    if 'f_atto' in st.session_state:
-        if st.button("AVVIA ANALISI VIZI"):
-            client = genai.Client(api_key=st.session_state['gemini_key'])
-            res = client.models.generate_content(
-                model="gemini-2.0-flash", 
-                contents=[types.Part.from_bytes(data=st.session_state['f_atto'], mime_type="application/pdf"), "Analizza l'atto ed estrai vizi tecnici."]
-            )
-            st.session_state['vizi'] = res.text
-        
-        if 'vizi' in st.session_state:
-            st.markdown(f'<div class="legal-card"><h3>Vizi Rilevati</h3>{st.session_state["vizi"]}</div>', unsafe_allow_html=True)
-    else:
-        st.warning("Carica un atto nella barra laterale per iniziare.")
-
-# --- PAGINA 2: RICERCA ---
-def pagina_ricerca():
-    st.markdown('<h1>🌐 Ricerca Avanzata Banca Dati</h1>', unsafe_allow_html=True)
-    with st.form("search_form"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            s_parole = st.text_input("Parole da ricercare", value=st.session_state.get('vizi', '')[:100])
-            s_tipo = st.selectbox("Tipo provvedimento", ["Tutti", "Sentenza", "Ordinanza"])
-            s_anno = st.selectbox("Anno", ["Tutti", "2025", "2024", "2023", "2022", "2021", "2020"])
-        with c2:
-            s_grado = st.selectbox("Grado autorità", ["Tutti", "CGT primo grado/Provinciale", "CGT secondo grado/Regionale"])
-            s_sede = st.selectbox("Autorità Emittente", PROVINCE if "primo" in s_grado else REGIONI)
-            s_esito = st.selectbox("Esito giudizio", ["Favorevole al contribuente", "Favorevole all'ufficio", "Tutti"])
-        with c3:
-            s_appello = st.radio("Appello", ["Si", "No"], horizontal=True)
-            s_cass = st.radio("Cassazione", ["Si", "No"], horizontal=True)
-            s_da = st.date_input("Data da", value=None)
-        
-        submitted = st.form_submit_button("RICERCA IN BANCA DATI")
-        
-    if submitted:
-        if st.session_state.get('pplx_key'):
-            with st.spinner("Ricerca in corso..."):
-                query = f"Sito: bancadatigiurisprudenza.giustiziatributaria.gov.it. Ricerca: {s_parole}. Tipo: {s_tipo}, Anno: {s_anno}, Grado: {s_grado}, Sede: {s_sede}, Esito: {s_esito}, Appello: {s_appello}, Cassazione: {s_cass}."
-                st.session_state['giur'] = call_perplexity(st.session_state['pplx_key'], query)
-        else: st.error("Manca chiave Perplexity")
-
-    if 'giur' in st.session_state:
-        st.markdown(f'<div class="legal-card"><h3>Risultati Banca Dati</h3>{st.session_state["giur"]}</div>', unsafe_allow_html=True)
-
-# --- PAGINA 3: REDAZIONE ---
-def pagina_redazione():
-    st.markdown('<h1>✍️ Redazione Atto di Ricorso</h1>', unsafe_allow_html=True)
-    if 'vizi' in st.session_state:
-        if st.button("GENERA BOZZA FINALE"):
-            client = genai.Client(api_key=st.session_state['gemini_key'])
-            # Integrazione sentenze offline e online
-            txt_offline = ""
-            if 'f_sentenze' in st.session_state:
-                for s_bytes in st.session_state['f_sentenze']:
-                    txt_offline += extract_text_from_bytes(s_bytes)
-            
-            prompt = f"Scrivi un ricorso professionale basato su vizi: {st.session_state['vizi']}, sentenze online: {st.session_state.get('giur','')}, e sentenze offline caricate: {txt_offline}. Usa il modello FATTO/DIRITTO/PQM."
-            res = client.models.generate_content(
-                model="gemini-2.0-flash", 
-                contents=[types.Part.from_bytes(data=st.session_state['f_atto'], mime_type="application/pdf"), prompt]
-            )
-            st.session_state['atto'] = res.text
-        
-        if 'atto' in st.session_state:
-            st.markdown('<div class="legal-card">', unsafe_allow_html=True)
-            st.text_area("Bozza Generata:", value=st.session_state['atto'], height=500)
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.download_button("📥 SCARICA RICORSO (.docx)", st.session_state['atto'], file_name="Ricorso_Studio.docx")
-    else: st.warning("Esegui prima l'analisi dei vizi nella Dashboard 1.")
-
-# --- SIDEBAR FISSA ---
-with st.sidebar:
-    st.markdown("<h1>Studio Legale 2.0</h1>", unsafe_allow_html=True)
-    st.session_state['gemini_key'] = st.text_input("Gemini API Key", type="password")
-    st.session_state['pplx_key'] = st.text_input("Perplexity API Key", type="password")
-    st.markdown("---")
-    f_acc = st.file_uploader("1. Carica Avviso Accertamento", type="pdf")
-    if f_acc: st.session_state['f_atto'] = f_acc.getvalue()
-    
-    f_pre = st.file_uploader("2. Carica Sentenze Offline (Multiplo)", type="pdf", accept_multiple_files=True)
-    if f_pre: st.session_state['f_sentenze'] = [f.getvalue() for f in f_pre]
-
-# --- NAVIGAZIONE ---
-pg = st.navigation([
-    st.Page(pagina_analisi, title="Analisi Vizi", icon="🔎"),
-    st.Page(pagina_ricerca, title="Ricerca Banca Dati", icon="🌐"),
-    st.Page(pagina_redazione, title="Redazione Atto", icon="✍️")
-])
-pg.run()
