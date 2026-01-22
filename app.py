@@ -4,8 +4,8 @@ from google import genai
 from google.genai import types
 from pypdf import PdfReader
 
-# --- CONFIGURAZIONE DESIGN ---
-st.set_page_config(page_title="Studio Tributario AI - V20.2", layout="wide")
+# --- CONFIGURAZIONE DESIGN V20.3 ---
+st.set_page_config(page_title="Studio Tributario AI - V20.3", layout="wide")
 
 st.markdown("""
     <style>
@@ -14,12 +14,24 @@ st.markdown("""
     
     /* SIDEBAR BLU */
     [data-testid="stSidebar"] { background-color: var(--primary) !important; }
-    [data-testid="stSidebar"] * { color: white !important; }
-    
-    /* --- FIX COLORE TESTO FILE CARICATI (SCURO) --- */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebarNav"] span { color: white !important; }
+
+    /* --- FIX DEFINITIVO COLORE TESTO E PULSANTI NEI BOX CARICAMENTO --- */
+    /* Colore del testo descrittivo e del nome file caricato */
     [data-testid="stSidebar"] .stFileUploader section div {
-        color: #2d3748 !important; /* Antracite scuro per i nomi dei file */
-        font-weight: 600;
+        color: #1a365d !important; 
+    }
+    /* Colore del testo sul pulsante 'Browse files' */
+    [data-testid="stSidebar"] .stFileUploader button p {
+        color: #1a365d !important;
+    }
+    /* Sfondo del pulsante per contrasto */
+    [data-testid="stSidebar"] .stFileUploader button {
+        border: 1px solid #1a365d !important;
     }
     
     [data-testid="stSidebar"] input, [data-testid="stSidebar"] select { 
@@ -46,12 +58,10 @@ REGIONI = ["Seleziona", "Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia
 def call_perplexity(api_key, query_parts):
     url = "https://api.perplexity.ai/chat/completions"
     headers = {"Authorization": f"Bearer {api_key.strip()}", "Content-Type": "application/json"}
-    
     instr = "Comando: Cerca sul sito bancadatigiurisprudenza.giustiziatributaria.gov.it con questi parametri: "
     for k, v in query_parts.items():
         if v not in ["Seleziona", "Tutti", "Non specificato", None]:
             instr += f"{k}: {v}; "
-
     payload = {
         "model": "sonar-pro",
         "messages": [
@@ -66,8 +76,14 @@ def call_perplexity(api_key, query_parts):
         return response.json()['choices'][0]['message']['content']
     except Exception as e: return f"Errore tecnico: {str(e)}"
 
-# --- LOGICA PAGINE ---
+def extract_text_from_bytes(pdf_bytes):
+    from io import BytesIO
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        return "".join([p.extract_text() for p in reader.pages])
+    except: return ""
 
+# --- LOGICA PAGINE ---
 def pagina_analisi():
     st.markdown("<h1>🔎 1. Analisi Vizi</h1>", unsafe_allow_html=True)
     if not st.session_state.get('gemini_key'):
@@ -86,7 +102,6 @@ def pagina_ricerca():
         st.warning("Inserisci Perplexity Key.")
         return
 
-    # --- SEZIONE 1: RICERCA BASE ---
     st.subheader("Ricerca sentenze e ordinanze di rinvio/rimessione alle Corti Superiori")
     with st.container():
         st.markdown('<div class="legal-card">', unsafe_allow_html=True)
@@ -96,7 +111,6 @@ def pagina_ricerca():
         with c3: s_anno = st.selectbox("Anno", ["Seleziona", "2025", "2024", "2023", "2022", "2021", "2020"])
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- SEZIONE 2: RICERCA AVANZATA ---
     query_avanzata = {}
     if s_tipo == "Sentenza":
         st.subheader("Ricerca avanzata")
@@ -106,16 +120,12 @@ def pagina_ricerca():
             with a1:
                 s_grado = st.selectbox("Grado autorità emittente", ["Seleziona", "CGT primo grado/Provinciale", "CGT secondo grado/Regionale", "Intera regione"])
             with a2:
-                lista_sede = ["Seleziona"]
-                if s_grado == "CGT primo grado/Provinciale": lista_sede = PROVINCE
-                elif s_grado in ["CGT secondo grado/Regionale", "Intera regione"]: lista_sede = REGIONI
+                lista_sede = PROVINCE if s_grado == "CGT primo grado/Provinciale" else (REGIONI if s_grado in ["CGT secondo grado/Regionale", "Intera regione"] else ["Seleziona"])
                 s_sede = st.selectbox("Autorità emittente", lista_sede)
             
             b1, b2 = st.columns(2)
             with b1:
-                if s_grado == "CGT primo grado/Provinciale":
-                    s_app = st.selectbox("Appello", ["Seleziona", "Si", "No"])
-                else: s_app = "Seleziona"
+                s_app = st.selectbox("Appello", ["Seleziona", "Si", "No"]) if s_grado == "CGT primo grado/Provinciale" else "Seleziona"
             with b2:
                 s_cass = st.selectbox("Cassazione", ["Seleziona", "Si", "No"])
 
