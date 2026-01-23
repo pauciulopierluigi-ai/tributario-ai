@@ -19,6 +19,8 @@ st.markdown("""
     [data-testid="stSidebar"] .stFileUploader section div { color: #1a365d !important; font-weight: 600; }
     [data-testid="stSidebar"] .stFileUploader button p { color: #1a365d !important; }
     [data-testid="stSidebar"] .stFileUploader button { border: 1px solid #1a365d !important; background-color: #f0f2f6 !important; }
+    [data-testid="stSidebar"] .stFileUploader label { color: white !important; }
+    [data-testid="stSidebar"] .uploadedFile { color: white !important; }
    
     [data-testid="stSidebar"] input, [data-testid="stSidebar"] select { color: black !important; background-color: white !important; }
     .legal-card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); border-top: 4px solid var(--accent); margin-bottom: 2rem; color: #2d3748; }
@@ -75,18 +77,22 @@ def pagina_ricerca():
     with st.container():
         st.markdown('<div class="legal-card">', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
-        with c1: s_parole = st.text_input("Parole da ricercare", value=st.session_state.get('vizi', '')[:100])
+        default_parole = ""
+        if 'f_atto' in st.session_state and st.session_state.get('gemini_key'):
+            client = genai.Client(api_key=st.session_state['gemini_key'])
+            res = client.models.generate_content(model="gemini-2.0-flash", contents=[types.Part.from_bytes(data=st.session_state['f_atto'], mime_type="application/pdf"), "Estrai massimo 3 parole chiave utili per ricerca giurisprudenza tributaria."])
+            default_parole = res.text.strip()[:100]
+        with c1: s_parole = st.text_input("Parole da ricercare", value=default_parole or st.session_state.get('vizi', '')[:100])
         with c2: s_tipo = st.selectbox("Tipo provvedimento", ["Tutti", "Sentenza", "Ordinanza di rinvio/remissione"])
         with c3: s_anno = st.selectbox("Anno", ["Seleziona", "2025", "2024", "2023", "2022", "2021", "2020"])
        
-        disabled_f1 = s_anno == "Seleziona" or not s_parole
+        disabled_f1 = not s_parole
         if st.button("AVVIA FASE 1: CENSIMENTO", disabled=disabled_f1):
             progress = st.progress(0)
             with st.spinner("Navigazione web attiva su Giustizia Tributaria..."):
-                sys = """Sei un analista esperto di giurisprudenza tributaria. Devi navigare sul sito bancadatigiurisprudenza.giustiziatributaria.gov.it.
-                NON dire mai che non puoi fornire un riepilogo statistico. Se i dati statistici diretti mancano, usa i risultati della ricerca web per
-                stimare la presenza di sentenze rilevanti su quel dominio e fornisci un elenco qualitativo dei casi trovati."""
-                q = f"Esegui ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it per '{s_parole}'. Tipo: {s_tipo}, Anno: {s_anno}. Fornisci sintesi dei risultati trovati."
+                sys = """Sei un analista esperto di giurisprudenza tributaria. Devi navigare sul sito bancadatigiurisprudenza.giustiziatributaria.gov.it e fornire sempre una sintesi dei risultati trovati. NON dire mai che non puoi accedere al sito o fornire statistiche. Se non ci sono sentenze relative alle parole chiave, dillo esplicitamente e suggerisci parole chiave alternative utili. Se ci sono risultati, fornisci sintesi e conteggio stimato."""
+                anno_part = f", Anno: {s_anno}" if s_anno != "Seleziona" else ""
+                q = f"Esegui ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it per '{s_parole}'. Tipo: {s_tipo}{anno_part}. Fornisci sintesi dei risultati trovati."
                 st.session_state['fase1_res'] = call_perplexity(st.session_state['pplx_key'], q, sys)
                 progress.progress(100)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -110,21 +116,35 @@ def pagina_ricerca():
             with d1: s_esito = st.selectbox("Esito giudizio", ["Seleziona", "Favorevole al contribuente", "Favorevole all'ufficio", "Tutti", "Conciliazione", "Condono"])
             with d2: s_spese = st.selectbox("Spese Giudizio", ["Seleziona", "Compensate", "A carico del contribuente", "A carico dell'ufficio"])
            
-            disabled_f2 = s_grado == "Seleziona" or s_sede == "Seleziona" or s_esito == "Seleziona"
+            disabled_f2 = s_grado == "Seleziona" or s_sede == "Seleziona"
             if st.button("AVVIA FASE 2: ANALISI DETTAGLIATA", disabled=disabled_f2):
                 progress = st.progress(0)
                 with st.spinner("Analisi giuridica dei precedenti..."):
                     sys_base = """Sei un Avvocato Tributarista esperto. Naviga su bancadatigiurisprudenza.giustiziatributaria.gov.it.
-                    Il tuo compito è trovare sentenze specifiche."""
-                    q_base = f"Cerca sentenze su bancadatigiurisprudenza.giustiziatributaria.gov.it con parametri: Parole '{s_parole}', Grado {s_grado}, Sede {s_sede}."
+                    Il tuo compito è trovare sentenze specifiche. Inizia sempre con un conteggio: 'Numero sentenze trovate: N'. Elenca le sentenze trovate."""
+                    grado_part = f", Grado {s_grado}" if s_grado != "Seleziona" else ""
+                    sede_part = f", Sede {s_sede}" if s_sede != "Seleziona" else ""
+                    app_part = f", Appello {s_app}" if s_app != "Seleziona" else ""
+                    cass_part = f", Cassazione {s_cass}" if s_cass != "Seleziona" else ""
+                    esito_part = f", Esito {s_esito}" if s_esito != "Seleziona" else ""
+                    spese_part = f", Spese {s_spese}" if s_spese != "Seleziona" else ""
+                    q_base = f"Cerca sentenze su bancadatigiurisprudenza.giustiziatributaria.gov.it con parametri: Parole '{s_parole}'{grado_part}{sede_part}{app_part}{cass_part}{esito_part}{spese_part}."
                     base_res = call_perplexity(st.session_state['pplx_key'], q_base, sys_base)
                     progress.progress(50)
                     
-                    sys_filter = """Sei un Avvocato Tributarista esperto. Analizza i risultati forniti e applica filtri: Esito {s_esito}, Spese {s_spese}, Appello {s_app}, Cassazione {s_cass}.
-                    Spiega la loro utilità tecnica per contrastare l'avviso di accertamento.
-                    Se i criteri sono troppo stretti, suggerisci parole chiave alternative o varianti giuridiche del tema (es: R&S -> Credito Ricerca e Sviluppo)."""
-                    q_filter = f"Risultati base: {base_res}. Applica filtri e fornisci analisi utilità e suggerimenti."
-                    st.session_state['giur'] = call_perplexity(st.session_state['pplx_key'], q_filter, sys_filter)
+                    # Estrai conteggio approssimativo
+                    import re
+                    match = re.search(r'Numero sentenze trovate: (\d+)', base_res)
+                    num_sentenze = int(match.group(1)) if match else 0
+                    
+                    if num_sentenze > 20:
+                        st.session_state['giur'] = "Trovate più di 20 sentenze. Si prega di restringere la ricerca aggiungendo più criteri (es. Esito, Spese)."
+                    else:
+                        sys_filter = """Sei un Avvocato Tributarista esperto. Analizza i risultati forniti.
+                        Spiega la loro utilità tecnica per contrastare l'avviso di accertamento. Analizza tutte le sentenze se <=20.
+                        Se i criteri sono troppo stretti, suggerisci parole chiave alternative o varianti giuridiche del tema (es: R&S -> Credito Ricerca e Sviluppo)."""
+                        q_filter = f"Risultati base: {base_res}. Fornisci analisi utilità e suggerimenti."
+                        st.session_state['giur'] = call_perplexity(st.session_state['pplx_key'], q_filter, sys_filter)
                     progress.progress(100)
             st.markdown('</div>', unsafe_allow_html=True)
     if 'giur' in st.session_state:
