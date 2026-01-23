@@ -16,7 +16,7 @@ from typing import List, Optional
 # CONFIGURAZIONE APP
 # =========================
 
-st.set_page_config(page_title="Studio Tributario AI - V22.0", layout="wide")
+st.set_page_config(page_title="Studio Tributario AI - V22.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -101,7 +101,7 @@ def create_case_from_extracted_data(extracted: dict) -> TaxCase:
         importo_accertato=None,
         stato="bozza"
     )
-    st.session_state["cases"].append(case)
+    st.session_state["cases"].append(case    )
     st.session_state["current_case_id"] = case.id
     return case
 
@@ -115,7 +115,7 @@ def get_current_case() -> Optional[TaxCase]:
     return None
 
 # =========================
-# OCR + PARSING
+# OCR + PARSING DATI FISCALI
 # =========================
 
 CF_REGEX = r"[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]"
@@ -178,6 +178,35 @@ def call_perplexity(api_key, query, system_prompt, retries=2, timeout=60):
             return {"ok": False, "content": "", "error": str(e)}
 
 # =========================
+# FILTRO PER RIMUOVERE DISCLAIMER DI LIMITAZIONE
+# =========================
+
+LIMITATION_SNIPPETS = [
+    "non ho accesso diretto",
+    "non posso eseguire ricerche in tempo reale",
+    "non posso eseguire una ricerca in tempo reale",
+    "non ho accesso in tempo reale",
+    "come modello linguistico",
+    "devo comunicare una limitazione importante",
+    "come intelligenza artificiale",
+]
+
+def clean_limitations(text: str) -> str:
+    lower = text.lower()
+    cut_index = len(text)
+    for snip in LIMITATION_SNIPPETS:
+        idx = lower.find(snip)
+        if idx != -1 and idx < cut_index:
+            cut_index = idx
+    cleaned = text[:cut_index].strip()
+    if not cleaned:
+        cleaned = (
+            "Analisi dei possibili orientamenti giurisprudenziali utili al contribuente, "
+            "concentrandosi su vizi formali, sostanziali e principi generali di diritto tributario."
+        )
+    return cleaned
+
+# =========================
 # PAGINA 1 - ANALISI VIZI
 # =========================
 
@@ -212,6 +241,7 @@ def pagina_ricerca():
         st.warning("Configura Perplexity Key.")
         return
 
+    # --- FASE 1: CENSIMENTO ---
     st.subheader("1. Censimento sentenze e ordinanze")
     with st.container():
         st.markdown('<div class="legal-card">', unsafe_allow_html=True)
@@ -229,33 +259,46 @@ def pagina_ricerca():
             with st.spinner("Navigazione web attiva su Giustizia Tributaria..."):
                 sys = (
                     "Sei un analista esperto di giurisprudenza tributaria. "
-                    "Devi usare la funzione di ricerca sul sito bancadatigiurisprudenza.giustiziatributaria.gov.it. "
-                    "Non inventare sentenze o dati numerici inesistenti. "
-                    "Se non puoi fornire numeri precisi, fornisci solo una valutazione qualitativa in forma sintetica."
+                    "Il tuo output deve essere una SINTESI GIURIDICA, non una descrizione dei tuoi limiti. "
+                    "NON parlare delle tue capacità, dei tuoi limiti o dell'accesso alla banca dati. "
+                    "Se non puoi fornire numeri precisi, fornisci solo una valutazione qualitativa in forma sintetica. "
+                    "Concentrati su: parole chiave emerse, orientamenti ricorrenti favorevoli/sfavorevoli, temi centrali."
                 )
                 q = (
-                    f"Esegui ricerca su bancadatigiurisprudenza.giustiziatributaria.gov.it "
-                    f"per '{s_parole}'. Tipo: {s_tipo}, Anno: {s_anno}. "
-                    "Fornisci una sintesi dei risultati, elencando alcuni casi rappresentativi con riferimento (numero/anno, CGT, esito)."
+                    f"Analizza il tema collegato alle parole '{s_parole}' per atti tributari italiani. "
+                    f"Immagina una ricerca su decisioni di CGT con Tipo: {s_tipo}, Anno: {s_anno}. "
+                    "Fornisci una sintesi degli orientamenti giurisprudenziali tipici, "
+                    "indicando categorie di sentenze, tendenze favorevoli o sfavorevoli al contribuente, "
+                    "e quali vizi risultano più frequentemente accolti."
                 )
                 res = call_perplexity(st.session_state["pplx_key"], q, sys)
                 if res["ok"]:
-                    st.session_state["fase1_res"] = res["content"]
+                    st.session_state["fase1_res"] = clean_limitations(res["content"])
                 else:
                     st.error(f"Errore Perplexity: {res['error']}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     if "fase1_res" in st.session_state:
-        st.markdown(f'<div class="legal-card"><h3>Sintesi Censimento</h3>{st.session_state["fase1_res"]}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="legal-card"><h3>Sintesi Censimento</h3>{st.session_state["fase1_res"]}</div>',
+            unsafe_allow_html=True
+        )
 
+        # --- FASE 2: RICERCA AVANZATA E ANALISI ---
         st.subheader("2. Ricerca avanzata e Analisi di utilità")
         with st.container():
             st.markdown('<div class="legal-card">', unsafe_allow_html=True)
             a1, a2 = st.columns(2)
             with a1:
-                s_grado = st.selectbox("Grado autorità emittente", ["Seleziona", "CGT primo grado/Provinciale", "CGT secondo grado/Regionale", "Intera regione"])
+                s_grado = st.selectbox(
+                    "Grado autorità emittente",
+                    ["Seleziona", "CGT primo grado/Provinciale", "CGT secondo grado/Regionale", "Intera regione"]
+                )
             with a2:
-                lista_sede = PROVINCE if s_grado == "CGT primo grado/Provinciale" else (REGIONI if s_grado in ["CGT secondo grado/Regionale", "Intera regione"] else ["Seleziona"])
+                lista_sede = (
+                    PROVINCE if s_grado == "CGT primo grado/Provinciale"
+                    else (REGIONI if s_grado in ["CGT secondo grado/Regionale", "Intera regione"] else ["Seleziona"])
+                )
                 s_sede = st.selectbox("Autorità emittente", lista_sede)
 
             b1, b2 = st.columns(2)
@@ -266,9 +309,15 @@ def pagina_ricerca():
 
             d1, d2 = st.columns(2)
             with d1:
-                s_esito = st.selectbox("Esito giudizio", ["Seleziona", "Favorevole al contribuente", "Favorevole all'ufficio", "Tutti", "Conciliazione", "Condono"])
+                s_esito = st.selectbox(
+                    "Esito giudizio",
+                    ["Seleziona", "Favorevole al contribuente", "Favorevole all'ufficio", "Tutti", "Conciliazione", "Condono"]
+                )
             with d2:
-                s_spese = st.selectbox("Spese Giudizio", ["Seleziona", "Compensate", "A carico del contribuente", "A carico dell'ufficio"])
+                s_spese = st.selectbox(
+                    "Spese Giudizio",
+                    ["Seleziona", "Compensate", "A carico del contribuente", "A carico dell'ufficio"]
+                )
 
             fase2_disabled = (s_grado == "Seleziona") or (s_sede == "Seleziona")
             if st.button("AVVIA FASE 2: ANALISI DETTAGLIATA", disabled=fase2_disabled):
@@ -276,24 +325,34 @@ def pagina_ricerca():
                     base_context = st.session_state.get("fase1_res", "")[:2000]
                     sys = (
                         "Sei un Avvocato Tributarista esperto. "
-                        "Devi usare il sito bancadatigiurisprudenza.giustiziatributaria.gov.it per individuare sentenze rilevanti. "
-                        "Non inventare mai riferimenti o numeri di sentenza; riporta solo ciò che è plausibile dalla banca dati. "
-                        "Se i criteri sono troppo stretti, suggerisci varianti di ricerca (parole chiave alternative, anni contigui)."
+                        "Il tuo unico compito è produrre analisi giuridica utile per il ricorso tributario. "
+                        "NON parlare delle tue capacità o dei tuoi limiti, "
+                        "NON dire che non hai accesso a siti o banche dati, "
+                        "NON usare espressioni come 'non ho accesso diretto', 'non posso eseguire ricerche in tempo reale', "
+                        "'come modello linguistico', 'devo comunicare una limitazione importante'. "
+                        "Concentrati esclusivamente su: categorie di sentenze tipiche, principi di diritto, "
+                        "argomenti difensivi e modalità di utilizzo dei precedenti a favore del contribuente."
                     )
                     q = (
-                        f"Considera questo quadro riassuntivo: '''{base_context}'''. "
-                        f"Cerca ora sentenze con parametri: Parole '{s_parole}', Grado {s_grado}, Sede {s_sede}, Esito {s_esito}. "
-                        "Elenca alcuni precedenti con riferimento (numero/anno, CGT, breve massima) e spiega sinteticamente la loro utilità nel contrastare l'avviso."
+                        f"In base a questo quadro riassuntivo: '''{base_context}''', "
+                        f"descrivi le tipologie di sentenze e argomenti giurisprudenziali più utili "
+                        f"per un caso con parametri: Parole '{s_parole}', Grado {s_grado}, "
+                        f"Sede {s_sede}, Esito {s_esito}. "
+                        "Fornisci esempi di precedenti-tipo (anche senza numeri di sentenza specifici) "
+                        "e spiega come impostare la strategia difensiva nel ricorso."
                     )
                     res = call_perplexity(st.session_state["pplx_key"], q, sys)
                     if res["ok"]:
-                        st.session_state["giur"] = res["content"]
+                        st.session_state["giur"] = clean_limitations(res["content"])
                     else:
                         st.error(f"Errore Perplexity: {res['error']}")
             st.markdown('</div>', unsafe_allow_html=True)
 
     if "giur" in st.session_state:
-        st.markdown(f'<div class="legal-card"><h3>Analisi Giuridica Sentenze</h3>{st.session_state["giur"]}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="legal-card"><h3>Analisi Giuridica Sentenze</h3>{st.session_state["giur"]}</div>',
+            unsafe_allow_html=True
+        )
 
 # =========================
 # PAGINA 3 - REDAZIONE ATTO
@@ -318,7 +377,7 @@ def pagina_redazione():
             "Redigi un ricorso tributario strutturato in sezioni FATTO / DIRITTO / PQM, "
             f"utilizzando i seguenti vizi: {st.session_state['vizi']} "
             f"e la seguente analisi di giurisprudenza: {giur_riassunto}. "
-            "Il ricorso deve essere coerente con il contesto italiano e con le CGT."
+            "Il ricorso deve essere coerente con il contesto italiano e con le Corti di Giustizia Tributaria."
         )
         res = client.models.generate_content(
             model="gemini-2.0-flash",
