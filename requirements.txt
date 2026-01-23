@@ -1,5 +1,10 @@
-streamlit>=1.35.0
-google-genai
-pypdf
-python-docx
-requests
+streamlit>=1.36.0
+requests>=2.31.0
+
+google-genai>=0.1.0
+
+pypdf>=4.0.0
+pdf2image>=1.17.0
+
+Pillow>=10.0.0
+pytesseract>=0.3.10
